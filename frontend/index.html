@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Used Car Price Prediction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="hero">
+  <h1>Used Car <span>Price</span> Prediction</h1>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="panel form-panel">
+      <div class="panel-head">
+        <h2>Car details</h2>
+      </div>
+
+      <form id="f" novalidate>
+        <div class="sec">
+          <h3><b>1</b> Basic info</h3>
+          <div class="fields">
+            <label>Brand <select name="brand" id="brand" required></select></label>
+            <label>Year <input name="year" type="number" min="1995" max="2026" value="2019" required></label>
+            <div class="full"><span class="lbl">Fuel</span><div class="pills" id="fuel"></div></div>
+            <div class="full"><span class="lbl">Transmission</span><div class="pills" id="transmission"></div></div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <h3><b>2</b> Usage and seller</h3>
+          <div class="fields">
+            <label>Kilometres driven
+              <span class="suffix"><input name="km_driven" type="number" min="0" max="500000" value="45000" required><em>km</em></span>
+            </label>
+            <label>Owner <select name="owner" id="owner" required></select></label>
+            <label class="full">Seller type <select name="seller_type" id="seller_type" required></select></label>
+          </div>
+        </div>
+
+        <details class="sec">
+          <summary><b>3</b> Engine details <i>optional</i></summary>
+          <div class="fields">
+            <label>Engine <span class="suffix"><input name="engine" type="number" placeholder="1197"><em>cc</em></span></label>
+            <label>Power <span class="suffix"><input name="max_power" type="number" step="0.1" placeholder="82"><em>bhp</em></span></label>
+            <label>Mileage <span class="suffix"><input name="mileage" type="number" step="0.1" placeholder="19"><em>kmpl</em></span></label>
+            <label>Seats <span class="suffix"><input name="seats" type="number" placeholder="5"><em>seats</em></span></label>
+          </div>
+        </details>
+
+        <button class="go" id="go" type="submit">Predict price</button>
+        <p class="error" id="err" role="alert"></p>
+      </form>
+    </section>
+
+    <aside class="side">
+      <div class="plate" aria-live="polite">
+        <div class="strip"><i></i>IND</div>
+        <div class="body">
+          <small>Estimated resale price</small>
+          <div class="price" id="price">₹ --</div>
+          <div class="lakh" id="lakh"></div>
+          <div class="range" id="range" hidden>
+            <div class="bar"><b></b><i id="mark"></i></div>
+            <div class="ends"><span id="lo"></span><span id="hi"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <h2>What drives the price?</h2>
+        <div class="stats" id="stats"></div>
+        <div id="imp"></div>
+        <p class="note">Likely range comes from how much the 300 decision trees disagree (10th to 90th percentile). Estimates, not offers.</p>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const inr = n => "₹ " + Math.round(n).toLocaleString("en-IN");
+const lakh = n => n >= 1e5 ? (n / 1e5).toFixed(2) + " lakh" : Math.round(n).toLocaleString("en-IN");
+const LABEL = {car_age:"Car age", brand:"Brand", km_driven:"Km driven", engine:"Engine", max_power:"Power",
+  km_per_year:"Km per year", fuel:"Fuel", transmission:"Transmission", owner:"Owner", seller_type:"Seller",
+  mileage:"Mileage", seats:"Seats", power_per_cc:"Power per cc", is_first_owner:"First owner"};
+
+function fill(id, items, def){
+  $(id).innerHTML = items.map(v => `<option>${v}</option>`).join("");
+  if (items.includes(def)) $(id).value = def;
+}
+function pills(id, items, def){
+  const chosen = items.includes(def) ? def : items[0];
+  $(id).innerHTML = items.map(v =>
+    `<label class="pill"><input type="radio" name="${id}" value="${v}" ${v === chosen ? "checked" : ""}><span>${v}</span></label>`).join("");
+}
+
+fetch("/api/meta").then(r => r.json()).then(m => {
+  fill("brand", m.brands, "Maruti");
+  fill("owner", m.options.owner, "First Owner");
+  fill("seller_type", m.options.seller_type, "Individual");
+  pills("fuel", m.options.fuel, "Petrol");
+  pills("transmission", m.options.transmission, "Manual");
+  $("stats").innerHTML =
+    `<div class="stat">Average miss<b>${inr(m.metrics.mae)}</b></div>` +
+    `<div class="stat">R² score<b>${m.metrics.r2.toFixed(2)}</b></div>`;
+  const max = Math.max(...Object.values(m.importance));
+  $("imp").innerHTML = Object.entries(m.importance).map(([k, v]) =>
+    `<div class="imp"><span>${LABEL[k] || k}</span><div class="t"><span style="width:${v / max * 100}%"></span></div><em>${(v * 100).toFixed(0)}%</em></div>`).join("");
+});
+
+function countUp(to){
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { $("price").textContent = inr(to); return; }
+  const t0 = performance.now(), dur = 700;
+  (function step(t){
+    const p = Math.min((t - t0) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+    $("price").textContent = inr(to * e);
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+$("f").addEventListener("submit", async e => {
+  e.preventDefault(); $("err").textContent = ""; $("go").disabled = true; $("go").textContent = "Predicting...";
+  try {
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    const res = await fetch("/api/predict", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    const txt = await res.text();
+    let d; try { d = JSON.parse(txt); } catch { throw new Error("Server error (" + res.status + "). Terminal mein error dekho."); }
+    if (!res.ok) throw new Error(d.error || "Something went wrong");
+    countUp(d.price);
+    $("lakh").textContent = "About ₹ " + lakh(d.price);
+    $("lo").textContent = inr(d.low); $("hi").textContent = inr(d.high);
+    $("mark").style.left = Math.min(Math.max((d.price - d.low) / ((d.high - d.low) || 1), 0), 1) * 100 + "%";
+    $("range").hidden = false;
+  } catch (err) { $("err").textContent = err.message; }
+  finally { $("go").disabled = false; $("go").textContent = "Predict price"; }
+});
+</script>
+</body>
+</html>
