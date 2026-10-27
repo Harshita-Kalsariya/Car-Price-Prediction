@@ -164,3 +164,8 @@ Example response:
 ## Learning outcomes
 
 Feature engineering, handling categories, spotting leakage, training and judging a regression model with MAE, RMSE and R², reading feature importance, and serving a model through a web app.
+
+
+![alt text](image.png)
+![alt text](image-1.png)
+![alt text](image-2.png)
